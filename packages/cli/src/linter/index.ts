@@ -44,6 +44,8 @@ export {
   tokenSummary,
   missingSections,
   missingTypography,
+  unknownKey,
+  tokenLikeIgnored,
 } from './linter/rules/index.js';
 export { contrastRatio } from './model/handler.js';
 export { TailwindEmitterHandler } from './tailwind/handler.js';

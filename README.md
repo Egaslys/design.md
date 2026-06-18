@@ -122,7 +122,7 @@ components:
 
 | Type | Format | Example |
 |:-----|:-------|:--------|
-| Color | `#` + hex (sRGB) | `"#1A1C1E"` |
+| Color | Any CSS color (hex, `rgb()`, `oklch()`, named, etc.) | `"#1A1C1E"`, `"oklch(62% 0.18 250)"` |
 | Dimension | number + unit (`px`, `em`, `rem`) | `48px`, `-0.02em` |
 | Token Reference | `{path.to.token}` | `{colors.primary}` |
 | Typography | object with `fontFamily`, `fontSize`, `fontWeight`, `lineHeight`, `letterSpacing`, `fontFeature`, `fontVariation` | See example above |
@@ -190,6 +190,19 @@ Or run directly (always resolves from the public npm registry):
 ```bash
 npx @google/design.md lint DESIGN.md
 ```
+
+On **Windows/PowerShell**, this direct form can produce no output (or open
+`DESIGN.md` in your Markdown editor) because the `.md` suffix in the `design.md`
+bin name collides with the Windows Markdown file association during command
+resolution. Run the dot-free `designmd` alias instead — point `npx` at the
+package with `-p`, then invoke `designmd`:
+
+```bash
+npx -p @google/design.md designmd lint DESIGN.md
+```
+
+The `designmd` shim resolves to the same entrypoint and works identically across
+all platforms.
 
 #### `npm error ENOVERSIONS` (“No versions available for @google/design.md”)
 
@@ -293,7 +306,7 @@ npx @google/design.md spec --rules-only --format json
 
 ## Linting Rules
 
-The linter runs seven rules against a parsed DESIGN.md. Each rule produces findings at a fixed severity level.
+The linter runs nine rules against a parsed DESIGN.md. Each rule produces findings at a fixed severity level.
 
 | Rule | Severity | What it checks |
 |:-----|:---------|:---------------|
@@ -305,6 +318,7 @@ The linter runs seven rules against a parsed DESIGN.md. Each rule produces findi
 | `missing-sections` | info | Optional sections (spacing, rounded) absent when other tokens exist |
 | `missing-typography` | warning | Colors are defined but no typography tokens exist — agents will use default fonts |
 | `section-order` | warning | Sections appear out of the canonical order defined by the spec |
+| `unknown-key` | warning | A top-level YAML key looks like a typo of a known schema key (e.g. `colours:` → `colors:`); custom extension keys stay silent |
 
 ### Programmatic API
 

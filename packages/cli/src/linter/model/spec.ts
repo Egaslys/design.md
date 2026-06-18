@@ -61,7 +61,7 @@ export interface ResolvedTypography {
   fontVariation?: string | undefined;
 }
 
-export type ResolvedValue = ResolvedColor | ResolvedDimension | ResolvedTypography | string;
+export type ResolvedValue = ResolvedColor | ResolvedDimension | ResolvedTypography | string | number | boolean;
 
 // ── Re-exported from spec-config (single source of truth) ─────────
 export const VALID_TYPOGRAPHY_PROPS = _VALID_TYPOGRAPHY_PROPS;
@@ -80,6 +80,10 @@ export interface DesignSystemState {
   symbolTable: Map<string, ResolvedValue>;
   /** Markdown heading names found in the document */
   sections?: string[] | undefined;
+  /** Top-level YAML keys that are not part of the known schema */
+  unknownKeys?: string[] | undefined;
+  /** Raw YAML values for unknown top-level keys, keyed by the unknown key name */
+  unknownKeyValues?: Record<string, unknown> | undefined;
 }
 
 export interface ComponentDef {
@@ -96,6 +100,7 @@ export const ModelErrorCode = z.enum([
   'UNRESOLVED_REFERENCE',
   'CIRCULAR_REFERENCE',
   'REFERENCE_TO_NON_PRIMITIVE',
+  'NESTING_DEPTH_EXCEEDED',
   'UNKNOWN_ERROR',
 ]);
 
@@ -142,6 +147,7 @@ const CSS_UNITS = new Set([
  * Returns null for non-dimension strings (bare numbers, keywords like `auto`).
  */
 export function parseDimensionParts(raw: string): { value: number; unit: string } | null {
+  if (typeof raw !== 'string') return null;
   const match = raw.match(/^(-?\d*\.?\d+)([a-zA-Z%]+)$/);
   if (!match) return null;
   const value = parseFloat(match[1]!);

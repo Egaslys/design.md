@@ -39,19 +39,36 @@ export interface SourceLocation {
 
 /** Raw, unresolved parsed output — mirrors the YAML schema */
 export interface ParsedDesignSystem {
+  version?: string | undefined;
   name?: string | undefined;
   description?: string | undefined;
-  colors?: Record<string, string> | undefined;
-  typography?: Record<string, Record<string, string | number>> | undefined;
-  rounded?: Record<string, string> | undefined;
-  spacing?: Record<string, string> | undefined;
-  components?: Record<string, Record<string, string>> | undefined;
+  colors?: Record<string, any> | undefined;
+  typography?: Record<string, Record<string, any>> | undefined;
+  rounded?: Record<string, any> | undefined;
+  spacing?: Record<string, any> | undefined;
+  components?: Record<string, Record<string, any>> | undefined;
   sourceMap: Map<string, SourceLocation>;
   /** Markdown heading names found in the document (e.g., 'Colors', 'Typography') */
   sections?: string[] | undefined;
   /** Full content of each section, including heading and body. */
   documentSections?: Array<{ heading: string; content: string }> | undefined;
+  /** Raw YAML values for all top-level keys (known and unknown), used by lint rules. */
+  rawValues?: Record<string, unknown> | undefined;
 }
+
+/** Canonical top-level YAML keys per the DESIGN.md schema. */
+export const SCHEMA_KEYS = [
+  'version',
+  'name',
+  'description',
+  'colors',
+  'typography',
+  'rounded',
+  'spacing',
+  'components',
+] as const;
+
+export type SchemaKey = typeof SCHEMA_KEYS[number];
 
 // ── RESULT ─────────────────────────────────────────────────────────
 export type ParserResult =

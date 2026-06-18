@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import type { ParsedDesignSystem } from '../parser/spec.js';
+import { SCHEMA_KEYS } from '../parser/spec.js';
 import type {
   ModelSpec,
   ModelResult,
@@ -27,7 +28,12 @@ import type {
 import { isValidColor, isParseableDimension, isTokenReference, parseDimensionParts } from './spec.js';
 import { parseCssColor } from './color-parser.js';
 
-const MAX_REFERENCE_DEPTH = 10;
+import {
+  MAX_REFERENCE_DEPTH,
+  MAX_TOKEN_NESTING_DEPTH,
+} from '../spec-config.js';
+
+const SCHEMA_KEY_SET: ReadonlySet<string> = new Set(SCHEMA_KEYS);
 
 /**
  * Builds a resolved DesignSystemState from parsed YAML tokens.
@@ -48,8 +54,8 @@ export class ModelHandler implements ModelSpec {
       // ── Phase 1: Resolve primitive tokens ──────────────────────────
       // Colors
       if (input.colors) {
-        for (const [name, raw] of Object.entries(input.colors)) {
-          if (isTokenReference(raw)) {
+        forEachLeaf(input.colors, (name, raw) => {
+          if (typeof raw === 'string' && isTokenReference(raw)) {
             // Store raw reference for later resolution
             symbolTable.set(`colors.${name}`, raw);
           } else if (isValidColor(raw)) {
@@ -60,12 +66,12 @@ export class ModelHandler implements ModelSpec {
             findings.push({
               severity: 'error',
               path: `colors.${name}`,
-              message: `'${raw}' is not a valid color. Expected a hex color code (e.g., #ffffff).`,
+              message: `'${raw}' is not a valid color. Expected a CSS color value (e.g., #ffffff, rgb(0 0 0), oklch(0.5 0.2 240)).`,
             });
             // Store as-is for fallback
             symbolTable.set(`colors.${name}`, raw);
           }
-        }
+        }, '', 0, findings, 'colors');
       }
 
       // Typography
@@ -79,7 +85,7 @@ export class ModelHandler implements ModelSpec {
 
       // Rounded
       if (input.rounded) {
-        for (const [name, raw] of Object.entries(input.rounded)) {
+        forEachLeaf(input.rounded, (name, raw) => {
           if (typeof raw === 'string') {
             if (isParseableDimension(raw)) {
               const resolved = parseDimension(raw);
@@ -103,12 +109,12 @@ export class ModelHandler implements ModelSpec {
               symbolTable.set(`rounded.${name}`, raw);
             }
           }
-        }
+        }, '', 0, findings, 'rounded');
       }
 
       // Spacing
       if (input.spacing) {
-        for (const [name, raw] of Object.entries(input.spacing)) {
+        forEachLeaf(input.spacing, (name, raw) => {
           if (isParseableDimension(raw)) {
             const resolved = parseDimension(raw);
             spacing.set(name, resolved);
@@ -116,26 +122,26 @@ export class ModelHandler implements ModelSpec {
           } else {
             symbolTable.set(`spacing.${name}`, raw);
           }
-        }
+        }, '', 0, findings, 'spacing');
       }
 
       // ── Phase 2: Resolve chained color references ──────────────────
       // Iterate color entries that are still raw references and resolve them
       if (input.colors) {
-        for (const [name, raw] of Object.entries(input.colors)) {
-          if (isTokenReference(raw)) {
+        forEachLeaf(input.colors, (name, raw) => {
+          if (typeof raw === 'string' && isTokenReference(raw)) {
             const resolved = resolveReference(symbolTable, raw.slice(1, -1), new Set());
             if (resolved !== null && typeof resolved === 'object' && 'type' in resolved && resolved.type === 'color') {
               colors.set(name, resolved as ResolvedColor);
               symbolTable.set(`colors.${name}`, resolved);
             }
           }
-        }
+        });
       }
 
       // Resolve chained rounded references
       if (input.rounded) {
-        for (const [name, raw] of Object.entries(input.rounded)) {
+        forEachLeaf(input.rounded, (name, raw) => {
           if (typeof raw === 'string' && isTokenReference(raw)) {
             const resolved = resolveReference(symbolTable, raw.slice(1, -1), new Set());
             if (
@@ -148,12 +154,12 @@ export class ModelHandler implements ModelSpec {
               symbolTable.set(`rounded.${name}`, resolved);
             }
           }
-        }
+        });
       }
 
       // Resolve chained spacing references
       if (input.spacing) {
-        for (const [name, raw] of Object.entries(input.spacing)) {
+        forEachLeaf(input.spacing, (name, raw) => {
           if (typeof raw === 'string' && isTokenReference(raw)) {
             const resolved = resolveReference(symbolTable, raw.slice(1, -1), new Set());
             if (
@@ -166,7 +172,7 @@ export class ModelHandler implements ModelSpec {
               symbolTable.set(`spacing.${name}`, resolved);
             }
           }
-        }
+        });
       }
 
       // ── Phase 3: Build components ──────────────────────────────────
@@ -177,11 +183,12 @@ export class ModelHandler implements ModelSpec {
           const unresolvedRefs: string[] = [];
 
           for (const [propName, rawValue] of Object.entries(props)) {
-            // Numeric values (e.g. fontWeight: 600, borderWidth: 1) are valid
-            // per spec and must be stored as-is, coercing to string first
-            // would cause isTokenReference / isValidColor to call .match() on
-            // a number and crash with "raw.match is not a function".
-            if (typeof rawValue === 'number') {
+            // Non-string scalars (numbers, booleans) are valid YAML values
+            // that can appear in component properties (e.g. fontWeight: 600,
+            // visible: true, opacity: 0.9). Store them as-is rather than
+            // passing them to string-only helpers like isTokenReference or
+            // isValidColor, which would either silently coerce or crash.
+            if (typeof rawValue === 'number' || typeof rawValue === 'boolean') {
               properties.set(propName, rawValue);
             } else if (isTokenReference(rawValue)) {
               const refPath = rawValue.slice(1, -1);
@@ -205,6 +212,19 @@ export class ModelHandler implements ModelSpec {
         }
       }
 
+      const unknownKeys = [...input.sourceMap.keys()].filter(
+        key => !SCHEMA_KEY_SET.has(key)
+      );
+
+      const unknownKeyValues: Record<string, unknown> = {};
+      if (input.rawValues) {
+        for (const key of unknownKeys) {
+          if (Object.prototype.hasOwnProperty.call(input.rawValues, key)) {
+            unknownKeyValues[key] = input.rawValues[key];
+          }
+        }
+      }
+
       return {
         designSystem: {
           name: input.name,
@@ -216,6 +236,8 @@ export class ModelHandler implements ModelSpec {
           components,
           symbolTable,
           sections: input.sections,
+          unknownKeys,
+          unknownKeyValues,
         },
         findings,
       };
@@ -381,4 +403,39 @@ export function contrastRatio(a: ResolvedColor, b: ResolvedColor): number {
   const L1 = Math.max(a.luminance, b.luminance);
   const L2 = Math.min(a.luminance, b.luminance);
   return (L1 + 0.05) / (L2 + 0.05);
+}
+
+/**
+ * Recursively iterate over an object and call a function for each leaf node.
+ * Leaf node paths are dot-separated (e.g. "background.light").
+ */
+function forEachLeaf(
+  obj: Record<string, any>,
+  fn: (path: string, value: any) => void,
+  prefix = '',
+  depth = 0,
+  findings?: Finding[],
+  rootPath?: string
+) {
+  if (depth > MAX_TOKEN_NESTING_DEPTH) {
+    if (findings && rootPath) {
+      // Check if we've already reported this rootPath to avoid spamming
+      if (!findings.some((f) => f.path === rootPath && f.message.includes('nesting depth'))) {
+        findings.push({
+          severity: 'error',
+          path: rootPath,
+          message: `Token nesting depth exceeds maximum allowed depth of ${MAX_TOKEN_NESTING_DEPTH}.`,
+        });
+      }
+    }
+    return;
+  }
+  for (const [key, value] of Object.entries(obj)) {
+    const fullPath = prefix ? `${prefix}.${key}` : key;
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      forEachLeaf(value, fn, fullPath, depth + 1, findings, rootPath);
+    } else {
+      fn(fullPath, value);
+    }
+  }
 }

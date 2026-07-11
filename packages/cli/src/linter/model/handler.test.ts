@@ -218,6 +218,25 @@ describe('ModelHandler', () => {
       expect(mix2?.g).toBe(128);
       expect(mix2?.b).toBe(128);
     });
+
+    it('parses grad hue units correctly (100grad === 90deg)', () => {
+      const result = handler.execute(makeParsed({
+        colors: { grad: 'hsl(100grad 100% 50%)', deg: 'hsl(90deg 100% 50%)' },
+      }));
+      expect(result.findings.length).toBe(0);
+      const grad = result.designSystem.colors.get('grad');
+      expect(grad?.hex).toBe('#80ff00');
+      expect(grad?.hex).toBe(result.designSystem.colors.get('deg')?.hex);
+    });
+
+    it('rejects color-mix with bare-number (non-percentage) weights', () => {
+      const result = handler.execute(makeParsed({
+        colors: { bad: 'color-mix(in srgb, red 20, blue)' },
+      }));
+      // CSS color-mix weights are percentages only; a bare number is invalid.
+      expect(result.designSystem.colors.has('bad')).toBe(false);
+      expect(result.findings.some(f => f.path === 'colors.bad' && f.severity === 'error')).toBe(true);
+    });
   });
 
   // ── Cycle 10: Resolve single-level token reference ────────────────
@@ -663,6 +682,22 @@ describe('ModelHandler', () => {
       // Construct the expected path: level1.level2...level21
       const path = Array.from({ length: 21 }, (_, i) => `level${i + 1}`).join('.');
       expect(result.designSystem.colors.has(path)).toBe(true);
+    });
+  });
+
+  describe('color-mix nesting depth limit', () => {
+    it('rejects pathologically nested color-mix as an invalid color without collapsing the model', () => {
+      let nested = 'red';
+      for (let i = 0; i < 50; i++) nested = `color-mix(in srgb, ${nested}, blue)`;
+      const result = handler.execute(makeParsed({
+        colors: { ok: '#ffffff', deep: nested },
+      }));
+      // The over-deep color resolves to "invalid" (a precise per-token error),
+      // not a thrown RangeError that collapses the whole model build.
+      expect(result.designSystem.colors.has('deep')).toBe(false);
+      expect(result.findings.some(f => f.path === 'colors.deep' && f.severity === 'error')).toBe(true);
+      // Other valid tokens are unaffected.
+      expect(result.designSystem.colors.get('ok')?.hex).toBe('#ffffff');
     });
   });
 });
